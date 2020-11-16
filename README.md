@@ -67,34 +67,10 @@ throughput = sum of num of CS completed in 1 milli second / num of nodes
 
 ![message complexity](report/throughput.png)
 
-`go run *.go --id 0 --neighbour 1 --neighbour 2 --algorithm raymond`
-`go run *.go --id 1 --neighbour 0 --algorithm raymond`
-`go run *.go --id 2 --neighbour 0 --algorithm raymond`
-`go run *.go --id 3 --neighbour 0 --algorithm raymond`
-
-`go run *.go --id 0 --neighbour 1 --neighbour 2 --holder 0 --tokens 2 --algorithm raymond-K-entry`
-`go run *.go --id 1 --neighbour 0 --holder 0 --tokens 2 --algorithm raymond-K-entry`
-`go run *.go --id 2 --neighbour 0 --holder 0 --tokens 2 --algorithm raymond-K-entry`
-`go run *.go --id 3 --neighbour 0 --holder 0 --tokens 2 --algorithm raymond-K-entry`
-
-`go run report/main.go --id 0 --num-of-nodes 4`
-`go run report/main.go --id 1 --num-of-nodes 4`
-`go run report/main.go --id 2 --num-of-nodes 4`
-`go run report/main.go --id 3 --num-of-nodes 4`
-
 ## References
 
-- https://github.com/rohitmalaga/Raymonds-Tree-based-distributed-mutual-exclusion-algorithm
-- https://github.com/topics/lamport-algorithm
-- https://github.com/smicn/Car2Car
-- https://github.com/Leogaogithub/Mutual-Exclusion-in-Distributed-Systems
-- https://github.com/DylanNS/LamportLogicalClock
-- https://github.com/jonhealy1/csc464_assign2
-- https://github.com/brndmfrd/BridgeSim
-- https://github.com/swairshah/LamportMutex
 - https://stackoverflow.com/questions/3419341/how-to-calculate-turning-direction/56278133#56278133
 - https://github.com/joyoyoyoyoyo/lamport-logical-clocks-in-a-distributed-system
 - https://en.wikipedia.org/wiki/Lamport%27s_distributed_mutual_exclusion_algorithm
 - https://www.ics.uci.edu/~cs237/reading/files/A%20Tree-Based%20algorithm%20for%20Distributed%20Mutual%20exclusion.pdf
-- file:///Users/reddy.prasad/Downloads/Multi-Token20Distributed20Mutual20Exclusion20Algorithm.pdf
 - https://www.computer.org/csdl/pds/api/csdl/proceedings/download-article/12OmNBqdrdh/pdf
