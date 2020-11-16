@@ -53,6 +53,7 @@ func SendMessage(addr string, data []byte) error {
 	if err != nil {
 		return err
 	}
+	defer conn.Close()
 
 	_, err = conn.Write(append(data, []byte("\n")...))
 	if err != nil {

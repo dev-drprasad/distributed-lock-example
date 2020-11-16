@@ -2,6 +2,7 @@ package main
 
 import (
 	"container/list"
+	raymond_K_entry "distributed-lock-example/raymond-K-entry"
 	udpclient "distributed-lock-example/udpclient"
 	"encoding/json"
 	"flag"
@@ -10,6 +11,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -18,59 +20,18 @@ type position struct {
 	Y int `json:"y"`
 }
 
-type lamport struct {
-	nodeID  int
-	clock   uint
-	queue   *list.List
-	replyCh chan struct{}
-	replies int
-	defered *list.List
-	inCS    bool
+type Algorithm interface {
+	ID() int
+	ProcessMessage(b []byte)
+	InCS() bool
+	EnterCS()
+	ExitCS()
+	AskToEnterCS(CSID string)
+	WaitForCS()
 }
 
-func (l *lamport) processMessage(b []byte) {
-	var m message
-	if err := json.Unmarshal(b, &m); err != nil {
-		log.Println("error unmarshalling message", err)
-	}
-
-	switch m.Message {
-	case "request":
-		log.Println("request came from ", m.SenderID)
-		l.queue.PushBack(m)
-		l.clock++
-		reply := message{SenderID: l.nodeID, Message: "reply", Time: l.clock, ReceiverID: m.SenderID}
-		if !l.inCS {
-			log.Println("I am not on bridge. replying to ", reply.ReceiverID)
-			b, _ := json.Marshal(reply)
-			udpclient.SendMessage(fmt.Sprintf(":700%d", m.SenderID), b)
-		} else {
-			log.Println("I am on bridge. deferring reply to ", reply.ReceiverID)
-			l.defered.PushBack(reply)
-		}
-	case "reply":
-		log.Println("got permission to enter from ", m.SenderID)
-		l.replies++
-		l.replyCh <- struct{}{}
-	case "release":
-		for e := l.queue.Front(); e != nil; e = e.Next() {
-			rm := e.Value.(message)
-			if rm.SenderID == m.SenderID {
-				l.queue.Remove(e)
-				break
-			}
-		}
-		l.replyCh <- struct{}{}
-	}
-
-}
-
-type message struct {
-	SenderID   int    `json:"senderId"`
-	ReceiverID int    `json:"receiverId"`
-	Message    string `json:"message"`
-	Time       uint   `json:"time"`
-}
+// var _ Algorithm = &raymod.Node{}
+var _ Algorithm = &raymond_K_entry.Node{}
 
 type guiMessage struct {
 	SenderID int      `json:"senderId"`
@@ -80,9 +41,6 @@ type guiMessage struct {
 
 var d = 10
 
-// var bridgeStart = [2]int{157, 179}
-// var bridgeEnd = [2]int{149, 227}
-var ids = []int{0, 1, 2, 3}
 var iterations = 5
 
 type Direction string
@@ -91,27 +49,31 @@ var DirectionEast Direction = "east"
 var DirectionWest Direction = "west"
 
 type car struct {
-	id        int
-	onBridge  bool
-	gui       *udpclient.Client
-	clock     uint
-	queue     *list.List
-	replyCh   chan struct{}
-	replies   int
-	defered   *list.List
+	// id        int
+	// onBridge  bool
+	gui *udpclient.Client
+	// clock     uint
+	queue *list.List
+	// replyCh   chan struct{}
+	// replies   int
+	// defered   *list.List
 	direction Direction
-	algo      lamport
+	algo      Algorithm
+}
+
+func (c *car) onBridge() bool {
+	return c.algo.InCS()
 }
 
 func (c *car) enterBridge() {
 	log.Println("entering bridge...")
-	c.onBridge = true
+	c.algo.EnterCS()
 
 }
 
 func (c *car) leaveBridge() {
 	log.Println("leaving bridge...")
-	c.onBridge = false
+	c.algo.ExitCS()
 	if c.direction == DirectionEast {
 		c.direction = DirectionWest
 	} else {
@@ -145,19 +107,28 @@ func (c *car) leavingBridge(pos int, direction Direction) bool {
 	// return pos == bridgeStartEndIndices[0]
 }
 
-func (c *car) askToEnterBridge() {
-	c.clock++
-	m := message{SenderID: c.id, Message: "request", Time: c.clock}
-	c.queue.PushBack(m)
-	for _, id := range ids {
-		if id != c.id {
-			log.Printf("asking %d to enter bridge...\n", id)
-			m.ReceiverID = id
-			b, _ := json.Marshal(m)
-			udpclient.SendMessage(fmt.Sprintf(":700%d", id), b)
-		}
-	}
+func (c *car) askToEnterBridge(d Direction) {
+	c.algo.AskToEnterCS(string(d))
 }
+
+func (c *car) waitForReply() {
+	log.Println("waiting for permission...")
+	c.algo.WaitForCS()
+}
+
+// func (c *car) askToEnterBridge() {
+// 	c.clock++
+// 	m := message{SenderID: c.id, Message: "request", Time: c.clock}
+// 	c.queue.PushBack(m)
+// 	for _, id := range ids {
+// 		if id != c.id {
+// 			log.Printf("asking %d to enter bridge...\n", id)
+// 			m.ReceiverID = id
+// 			b, _ := json.Marshal(m)
+// 			udpclient.SendMessage(fmt.Sprintf(":700%d", id), b)
+// 		}
+// 	}
+// }
 
 func (c *car) move(startPos int) {
 	for i := startPos; i < len(travellingPath); i++ {
@@ -165,57 +136,15 @@ func (c *car) move(startPos int) {
 
 		// log.Println("i, c.direction", i, c.direction)
 		if c.enteringBridge(i, c.direction) {
-			go c.askToEnterBridge()
-			for {
-				<-c.replyCh
-
-				gotPermission := c.replies == len(ids)-1
-				if gotPermission {
-					m := c.queue.Front().Value.(message)
-					if m.SenderID == c.id {
-						break
-					} else {
-						log.Println("I got permission. but priority goes to ", m.SenderID)
-					}
-				}
-			}
-			c.replies = 0
+			go c.askToEnterBridge(c.direction)
+			c.waitForReply()
 			c.enterBridge()
-		}
-		if c.leavingBridge(i, c.direction) {
+		} else if c.leavingBridge(i, c.direction) {
 			c.leaveBridge()
-			for e := c.defered.Front(); e != nil; e = e.Next() {
-				log.Println(c.defered.Len())
-
-				m := e.Value.(message)
-				log.Println("replying to defered requests. receiver : ", m.ReceiverID)
-				b, _ := json.Marshal(m)
-				udpclient.SendMessage(fmt.Sprintf(":700%d", m.ReceiverID), b)
-				// c.defered.Remove(e)
-			}
-
-			c.defered.Init()
-
-			c.clock++
-			for _, id := range ids {
-				if id != c.id {
-					m := message{SenderID: c.id, ReceiverID: id, Message: "release", Time: c.clock}
-					b, _ := json.Marshal(m)
-					udpclient.SendMessage(fmt.Sprintf(":700%d", id), b)
-				}
-			}
-
-			for e := c.queue.Front(); e != nil; e = e.Next() {
-				m := e.Value.(message)
-				if m.SenderID == c.id {
-					c.queue.Remove(e)
-					break
-				}
-			}
 		}
 
 		if i%5 == 0 {
-			m := guiMessage{SenderID: c.id, Position: pos}
+			m := guiMessage{SenderID: c.algo.ID(), Position: pos}
 			b, _ := json.Marshal(&m)
 			if err := c.gui.Send(b); err != nil {
 				log.Println(err)
@@ -225,10 +154,32 @@ func (c *car) move(startPos int) {
 	}
 }
 
+type ints []int
+
+func (i *ints) String() string {
+	return "my string representation"
+}
+
+func (i *ints) Set(value string) error {
+	if v, err := strconv.Atoi(value); err != nil {
+		*i = append(*i, v)
+	}
+	return nil
+}
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	var id int
+	var algorithm string
+
+	var neighourIDs ints
+	var holder int
+	var tokens int
 	flag.IntVar(&id, "id", -1, "id of car")
+	flag.IntVar(&holder, "holder", -1, "id of car")
+	flag.IntVar(&tokens, "tokens", 0, "id of car")
+	flag.StringVar(&algorithm, "algorithm", "lamport", "raymond or lamport")
+	flag.Var(&neighourIDs, "neighbour", "neighbour ids")
 	flag.Parse()
 	rand.Seed(time.Now().UnixNano() + int64(id))
 	gui, err := udpclient.NewClient(":7500")
@@ -236,7 +187,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	listenAddr := fmt.Sprintf(":700%d", id)
+	listenAddr := fmt.Sprintf(":%d", 7000+id)
 
 	s, err := net.ResolveUDPAddr("udp4", listenAddr)
 	if err != nil {
@@ -250,14 +201,22 @@ func main() {
 	defer conn.Close()
 
 	buffer := make([]byte, 1024)
-	replyCh := make(chan struct{})
 
 	carDirection := DirectionWest
 	if id%2 == 0 {
 		carDirection = DirectionEast
 	}
-	algo := lamport{nodeID: id, queue: list.New(), replyCh: replyCh, defered: list.New()}
-	c := car{id: id, gui: gui, queue: list.New(), replyCh: replyCh, defered: list.New(), direction: carDirection, algo: algo}
+
+	var algo Algorithm
+	if algorithm == "raymond" {
+		log.Println("initial holder: ", holder)
+		// algo = raymond.NewNode(id, neighourIDs, holder)
+	} else if algorithm == "raymond-K-entry" {
+		algo = raymond_K_entry.NewNode(id, neighourIDs, holder, tokens)
+	} else {
+		// algo = lamport.NewNode(id)
+	}
+	c := car{gui: gui, queue: list.New(), direction: carDirection, algo: algo}
 	log.Println("bridgeStartEndIndices", bridgeStartEndIndices)
 
 	go func(conn *net.UDPConn) {
@@ -268,40 +227,41 @@ func main() {
 			}
 			b := buffer[0 : n-1]
 			log.Println("message: ", string(b))
+			c.algo.ProcessMessage(b)
 
-			var m message
-			if err := json.Unmarshal(b, &m); err != nil {
-				log.Println("error unmarshalling message", err)
-			}
+			// var m message
+			// if err := json.Unmarshal(b, &m); err != nil {
+			// 	log.Println("error unmarshalling message", err)
+			// }
 
-			switch m.Message {
-			case "request":
-				log.Println("request came from ", m.SenderID)
-				c.queue.PushBack(m)
-				c.clock++
-				reply := message{SenderID: c.id, Message: "reply", Time: c.clock, ReceiverID: m.SenderID}
-				if !c.onBridge {
-					log.Println("I am not on bridge. replying to ", reply.ReceiverID)
-					b, _ := json.Marshal(reply)
-					udpclient.SendMessage(fmt.Sprintf(":700%d", m.SenderID), b)
-				} else {
-					log.Println("I am on bridge. deferring reply to ", reply.ReceiverID)
-					c.defered.PushBack(reply)
-				}
-			case "reply":
-				log.Println("got permission to enter from ", m.SenderID)
-				c.replies++
-				c.replyCh <- struct{}{}
-			case "release":
-				for e := c.queue.Front(); e != nil; e = e.Next() {
-					rm := e.Value.(message)
-					if rm.SenderID == m.SenderID {
-						c.queue.Remove(e)
-						break
-					}
-				}
-				c.replyCh <- struct{}{}
-			}
+			// switch m.Message {
+			// case "request":
+			// 	log.Println("request came from ", m.SenderID)
+			// 	c.queue.PushBack(m)
+			// 	c.clock++
+			// 	reply := message{SenderID: c.id, Message: "reply", Time: c.clock, ReceiverID: m.SenderID}
+			// 	if !c.onBridge {
+			// 		log.Println("I am not on bridge. replying to ", reply.ReceiverID)
+			// 		b, _ := json.Marshal(reply)
+			// 		udpclient.SendMessage(fmt.Sprintf(":700%d", m.SenderID), b)
+			// 	} else {
+			// 		log.Println("I am on bridge. deferring reply to ", reply.ReceiverID)
+			// 		c.defered.PushBack(reply)
+			// 	}
+			// case "reply":
+			// 	log.Println("got permission to enter from ", m.SenderID)
+			// 	c.replies++
+			// 	c.replyCh <- struct{}{}
+			// case "release":
+			// 	for e := c.queue.Front(); e != nil; e = e.Next() {
+			// 		rm := e.Value.(message)
+			// 		if rm.SenderID == m.SenderID {
+			// 			c.queue.Remove(e)
+			// 			break
+			// 		}
+			// 	}
+			// 	c.replyCh <- struct{}{}
+			// }
 		}
 	}(conn)
 
