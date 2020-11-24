@@ -6,15 +6,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 )
 
 var MessageRequest string = "request"
 var MessagePrivilege string = "privilege"
 
 type message struct {
-	SenderID int    `json:"senderId"`
-	Message  string `json:"message"`
-	CSID     string `json:"csId"`
+	SenderID     int    `json:"senderId"`
+	ReceiverAddr string `json:"receiverAddr"`
+	Message      string `json:"message"`
+	CSID         string `json:"csId"`
 }
 
 type request struct {
@@ -24,17 +26,16 @@ type request struct {
 
 type Node struct {
 	nodeID       int
-	neighbourIDs []int
+	neighbourIDs map[int]string
 	using        bool
 	requestQueue *list.List
-	// holder       int
-	// asked        bool
-	enterCSCh chan struct{}
-	tdb       *list.List // size will equal to number of tokens in system
-	groupID   string     // ex: car moving from east->west belongs to group `0`, west->east belongs to group `1` and so on
+	enterCSCh    chan struct{}
+	tdb          *list.List // size will equal to number of tokens in system
+	groupID      string     // ex: car moving from east->west belongs to group `0`, west->east belongs to group `1` and so on
+	listenAddr   string
 }
 
-func NewNode(ID int, neighbourIDs []int, holder int, tokens int) *Node {
+func NewNode(ID int, listenAddr string, neighbourIDs map[int]string, holder int, tokens int) *Node {
 	tdb := list.New()
 	for i := 0; i < tokens; i++ {
 		r := request{ID: holder, CSID: ""}
@@ -43,7 +44,8 @@ func NewNode(ID int, neighbourIDs []int, holder int, tokens int) *Node {
 
 	return &Node{
 		nodeID: ID, neighbourIDs: neighbourIDs, requestQueue: list.New(), enterCSCh: make(chan struct{}, 1),
-		tdb: tdb,
+		tdb:        tdb,
+		listenAddr: listenAddr,
 	}
 }
 
@@ -76,10 +78,10 @@ func (r *Node) makeRequest(CSID string) {
 
 	if !r.hasToken(CSID) && r.tdb.Len() > 0 && r.requestQueue.Len() > 0 {
 		holder := r.getOtherHolder()
-		m := message{SenderID: r.nodeID, Message: MessageRequest, CSID: CSID}
+		m := message{SenderID: r.nodeID, Message: MessageRequest, CSID: CSID, ReceiverAddr: r.neighbourIDs[holder]}
 		log.Println("request for CSID ", CSID, " to ", holder)
 		b, _ := json.Marshal(m)
-		if err := udpclient.SendMessage(fmt.Sprintf(":%d", 7000+holder), b); err != nil {
+		if err := udpclient.SendMessage(m.ReceiverAddr, b); err != nil {
 			// r.asked = true
 			r.deleteFromTDB(holder)
 		}
@@ -135,11 +137,10 @@ func (r *Node) assignPrivilege(CSID string) {
 				r.enterCSCh <- struct{}{}
 			} else {
 				log.Println("giving privilege to ", nextHolder)
-				m := message{SenderID: r.nodeID, Message: MessagePrivilege, CSID: nextHolder.CSID}
+				m := message{SenderID: r.nodeID, Message: MessagePrivilege, CSID: nextHolder.CSID, ReceiverAddr: r.neighbourIDs[nextHolder.ID]}
 				b, _ := json.Marshal(m)
-				if err := udpclient.SendMessage(fmt.Sprintf(":%d", 7000+nextHolder.ID), b); err != nil {
+				if err := udpclient.SendMessage(m.ReceiverAddr, b); err != nil {
 				} else {
-					// r.holder = nextHolder.ID
 					r.groupID = nextHolder.CSID
 					r.tdb.PushBack(*nextHolder)
 					log.Println("new holder is ", nextHolder.ID)
@@ -175,6 +176,7 @@ func (r *Node) ExitCS() {
 	r.groupID = ""
 	r.assignPrivilege("")
 }
+
 func (r *Node) ProcessMessage(b []byte) {
 	var m message
 	json.Unmarshal(b, &m)
@@ -190,10 +192,34 @@ func (r *Node) ProcessMessage(b []byte) {
 			log.Println("❗️ message got ignored")
 		}
 	case MessagePrivilege:
-		// r.holder = r.nodeID
 		req := request{ID: r.nodeID, CSID: m.CSID}
-		log.Println("req ", req)
 		r.tdb.PushBack(req)
 		r.assignPrivilege(m.CSID)
+	}
+}
+
+func (r *Node) Start() {
+
+	s, err := net.ResolveUDPAddr("udp4", r.listenAddr)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	conn, err := net.ListenUDP("udp4", s)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer conn.Close()
+
+	for {
+		buffer := make([]byte, 1024)
+		n, _, err := conn.ReadFromUDP(buffer)
+		if err != nil {
+			log.Println("failed to read from udp: ", err)
+			break
+		}
+		b := buffer[0 : n-1]
+		log.Println(fmt.Sprintf("[%d]", r.ID()), "<<- ", string(b))
+		go r.ProcessMessage(b)
 	}
 }

@@ -88,7 +88,7 @@ type Algorithm interface {
 	InCS() bool
 	EnterCS()
 	ExitCS()
-	AskToEnterCS()
+	AskToEnterCS(CSID string)
 	WaitForCS()
 }
 
@@ -139,12 +139,20 @@ func (t *TestNode) Start() {
 }
 
 func NewLamportNode(id int, neighbourIDs []int) *TestNode {
-	ln := lamport.NewNode(id, neighbourIDs)
+	var neighbours map[int]string
+	for _, id := range neighbourIDs {
+		neighbours[id] = fmt.Sprintf(":%d", 7000+id)
+	}
+	ln := lamport.NewNode(id, fmt.Sprintf(":%d", 7000+id), neighbours)
 	return &TestNode{0, ln, make(chan struct{}, 1)}
 }
 
 func NewRaymondNode(id int, neighbourIDs []int, holderID int) *TestNode {
-	rn := raymod.NewNode(id, neighbourIDs, holderID)
+	var neighbours map[int]string
+	for _, id := range neighbourIDs {
+		neighbours[id] = fmt.Sprintf(":%d", 7000+id)
+	}
+	rn := raymod.NewNode(id, fmt.Sprintf(":%d", 7000+id), neighbours, holderID)
 	return &TestNode{0, rn, make(chan struct{}, 1)}
 }
 
@@ -180,7 +188,7 @@ func Init(algo string, id int, numOfNodes int, neighbourIDs []int, holderID int)
 	iterations := 15
 	for i := 0; i < iterations; i++ {
 		time.Sleep(1200 * time.Millisecond)
-		node.AskToEnterCS()
+		node.AskToEnterCS("")
 		waitStartTime := time.Now()
 		node.WaitForCS()
 		// result.avgCSWaitTime += float64(time.Now().Sub(waitStartTime)) / float64(iterations)

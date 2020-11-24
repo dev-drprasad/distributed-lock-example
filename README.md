@@ -1,4 +1,4 @@
-## Raymond and Lamport
+## Distributed Lock Simulation (Cars crossing narrow bridge)
 
 ### Lamport Algorithm Implementation
 
@@ -6,11 +6,73 @@ package `lamport` contains lamport's algorithm implementation.
 
 reference: "Time, Clocks, and the Ordering of Events in a Distributed System" by Leslie Lamport
 
-### Raymond Algoirthm Implementation
+### Raymond Algorithm Implementation
 
 package `raymond` contains raymond's algorithm implementation
 
 reference: "A Tree-Based Algorithm for Distributed Mutual Exclusion" by Kerry Raymond
+
+### Lamport K entry Algorithm Implementation
+
+package `lamport-K-entry` contains "Lamport K entry" implementation. This modified version of lamports to allow mulitiple entries to critical section. `CSID` is unique identifier for a critical section. when multiple nodes tries enter CS with same `CSID` they all get approval enter. In our car crossing simulation, when one is on bridge and another requests to enter bridge in same direction, second will get approval to enter.
+
+### Raymond K entry Algorithm Implementation
+
+package `raymond-K-entry` contains "Raymond K entry" implementation. This modified version of raymonds to allow mulitiple entries to critical section. Unfortunately, I couldn't able to finish this.
+
+ref: https://www.computer.org/csdl/pds/api/csdl/proceedings/download-article/12OmNBqdrdh/pdf
+
+### Narrow Bridge Simulation
+
+Below commands can be run in single machine as seperate process. Or can be run in multiple machines.
+All commands I mentioned are to run in single machine. To run in multiple machines, change `--neighbour` value with respective IP and port values. `--neighbour` format is `<node-id>:<host>:<port>`
+
+#### One car at a time
+
+This can be simulated using `raymond` and `lamport` implementations I did.
+
+##### Using Raymond
+
+```
+go run *.go --id 0 --listen :7000 --neighbour 1:127.0.0.1:7001 --neighbour 2:127.0.0.1:7002 --neighbour 3:127.0.0.1:7003 --holder 0 --algorithm raymond
+go run *.go --id 1 --listen :7001 --neighbour 0:127.0.0.1:7000 --holder 0 --algorithm raymond
+go run *.go --id 2 --listen :7002 --neighbour 0:127.0.0.1:7000 --holder 0 --algorithm raymond
+go run *.go --id 3 --listen :7003 --neighbour 0:127.0.0.1:7000 --holder 0 --algorithm raymond
+```
+
+##### Using Lamport
+
+```
+go run *.go --id 0 --listen :7000 --neighbour 1:127.0.0.1:7001 --neighbour 2:127.0.0.1:7002 --neighbour 3:127.0.0.1:7003 --algorithm lamport
+go run *.go --id 1 --listen :7001 --neighbour 0:127.0.0.1:7000 --neighbour 2:127.0.0.1:7002 --neighbour 3:127.0.0.1:7003 --algorithm lamport
+go run *.go --id 2 --listen :7002 --neighbour 0:127.0.0.1:7000 --neighbour 1:127.0.0.1:7001 --neighbour 3:127.0.0.1:7003 --algorithm lamport
+go run *.go --id 3 --listen :7003 --neighbour 0:127.0.0.1:7000 --neighbour 1:127.0.0.1:7001 --neighbour 2:127.0.0.1:7002 --algorithm lamport
+```
+
+#### Multiple cars in same direction
+
+##### Using Lamport K entry
+
+```
+go run *.go --id 0 --listen :7000 --neighbour 1:127.0.0.1:7001 --neighbour 2:127.0.0.1:7002 --neighbour 3:127.0.0.1:7003 --algorithm lamport-K-entry
+go run *.go --id 1 --listen :7001 --neighbour 0:127.0.0.1:7000 --neighbour 2:127.0.0.1:7002 --neighbour 3:127.0.0.1:7003 --algorithm lamport-K-entry
+go run *.go --id 2 --listen :7002 --neighbour 0:127.0.0.1:7000 --neighbour 1:127.0.0.1:7001 --neighbour 3:127.0.0.1:7003 --algorithm lamport-K-entry
+go run *.go --id 3 --listen :7003 --neighbour 0:127.0.0.1:7000 --neighbour 1:127.0.0.1:7001 --neighbour 2:127.0.0.1:7002 --algorithm lamport-K-entry
+```
+
+##### Using Raymond K entry
+
+I was not able to finish this within time. But I added `raymond-K-entry` just for reference
+
+##### How I generated travelling path ?
+
+Run
+
+```
+python3 -m http.server --directory . 8000
+```
+
+visit http://localhost:8000 in browser. you see a canvas with background image (`gui/resources/bg.png`). Draw on that image from pos X to pos Y. Once you done drawing a file will get download automatically which contains coords of drawn path. files `paths/bridge.txt`, `paths/leftsidecircle.txt`, `paths/rightsidecircle.txt` are generated like this
 
 ### Testing
 
@@ -37,21 +99,28 @@ go run report/main.go
 
 Report generation will take 2-3 minutes.
 
-| Algo    | Nodes | Message Complexity | Response Time | Throughput      |
-| ------- | ----- | ------------------ | ------------- | --------------- |
-| Lamport | 3     | 216                | 5.499019ms    | 1m8.729933082s  |
-| Lamport | 6     | 1080               | 1.241806964s  | 2m32.343616329s |
-| Lamport | 9     | 2592               | 7.491720551s  | 4m56.241365024s |
-| Lamport | 12    | 4752               | 24.450843328s | 9m28.986381758s |
-| Raymond | 3     | 96                 | 599.272088ms  | 1m15.871362844s |
-| Raymond | 6     | 190                | 3.005459531s  | 2m53.466908752s |
-| Raymond | 9     | 306                | 7.461316254s  | 4m55.477617174s |
-| Raymond | 12    | 390                | 12.014946558s | 6m58.880047825s |
+| Algo    | Nodes | Messages (avg) | CS waiting time (median) (sec) | Time taken to complete CS (median) (sec) |
+| ------- | ----- | -------------- | ------------------------------ | ---------------------------------------- |
+| Lamport | 3     | 18             | 0.04                           | 2.71                                     |
+| Lamport | 6     | 90             | 0.64                           | 13.84                                    |
+| Lamport | 9     | 216            | 2.60                           | 45.31                                    |
+| Lamport | 12    | 395            | 4.66                           | 78.25                                    |
+| Raymond | 3     | 8              | 0.04                           | 2.71                                     |
+| Raymond | 6     | 13             | 0.24                           | 7.81                                     |
+| Raymond | 9     | 20             | 0.51                           | 14.03                                    |
+| Raymond | 12    | 42             | 0.48                           | 15.56                                    |
+
+### Screenshot
+
+![screenshot](report/screenshot.png)
 
 **Graphs are drawn using following formulas:**
-message complexity = sum of num of messages / num of nodes
-response time = sum of CS waiting time / num of nodes
-throughput = sum of num of CS completed in 1 milli second / num of nodes
+
+message complexity = sum of num of messages
+
+response time = sum of CS waiting time
+
+throughput = sum of num of CS completed in 1 second
 
 \*CS = critical section
 
@@ -67,34 +136,10 @@ throughput = sum of num of CS completed in 1 milli second / num of nodes
 
 ![message complexity](report/throughput.png)
 
-`go run *.go --id 0 --neighbour 1 --neighbour 2 --algorithm raymond`
-`go run *.go --id 1 --neighbour 0 --algorithm raymond`
-`go run *.go --id 2 --neighbour 0 --algorithm raymond`
-`go run *.go --id 3 --neighbour 0 --algorithm raymond`
-
-`go run *.go --id 0 --neighbour 1 --neighbour 2 --holder 0 --tokens 2 --algorithm raymond-K-entry`
-`go run *.go --id 1 --neighbour 0 --holder 0 --tokens 2 --algorithm raymond-K-entry`
-`go run *.go --id 2 --neighbour 0 --holder 0 --tokens 2 --algorithm raymond-K-entry`
-`go run *.go --id 3 --neighbour 0 --holder 0 --tokens 2 --algorithm raymond-K-entry`
-
-`go run report/main.go --id 0 --num-of-nodes 4`
-`go run report/main.go --id 1 --num-of-nodes 4`
-`go run report/main.go --id 2 --num-of-nodes 4`
-`go run report/main.go --id 3 --num-of-nodes 4`
-
 ## References
 
-- https://github.com/rohitmalaga/Raymonds-Tree-based-distributed-mutual-exclusion-algorithm
-- https://github.com/topics/lamport-algorithm
-- https://github.com/smicn/Car2Car
-- https://github.com/Leogaogithub/Mutual-Exclusion-in-Distributed-Systems
-- https://github.com/DylanNS/LamportLogicalClock
-- https://github.com/jonhealy1/csc464_assign2
-- https://github.com/brndmfrd/BridgeSim
-- https://github.com/swairshah/LamportMutex
 - https://stackoverflow.com/questions/3419341/how-to-calculate-turning-direction/56278133#56278133
 - https://github.com/joyoyoyoyoyo/lamport-logical-clocks-in-a-distributed-system
 - https://en.wikipedia.org/wiki/Lamport%27s_distributed_mutual_exclusion_algorithm
 - https://www.ics.uci.edu/~cs237/reading/files/A%20Tree-Based%20algorithm%20for%20Distributed%20Mutual%20exclusion.pdf
-- file:///Users/reddy.prasad/Downloads/Multi-Token20Distributed20Mutual20Exclusion20Algorithm.pdf
 - https://www.computer.org/csdl/pds/api/csdl/proceedings/download-article/12OmNBqdrdh/pdf

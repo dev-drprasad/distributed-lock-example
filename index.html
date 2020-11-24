@@ -32,6 +32,20 @@
     let mouseX = 0;
     let mouseY = 0;
     var track = [];
+
+    function saveData(text, fileName) {
+      const blob = new Blob([text], { type: "text/plain; encoding=utf8" });
+      const a = document.createElement("a");
+      document.body.appendChild(a);
+      a.style = "display: none";
+
+      var url = window.URL.createObjectURL(blob);
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a)
+    }
     function setMousePosition(e) {
       if (draw) {
         mouseX = getMousePos(e).x;
@@ -39,8 +53,12 @@
         track.push([mouseX, mouseY])
       }
     }
+    function onMouseUp() {
+      draw = false
+      const text = track.map((xy) => xy.join(",")).join(" ")
+      saveData(text, "path.txt")
+    }
     function update() {
-
       context.beginPath();
       context.arc(mouseX, mouseY, 2, 0, 2 * Math.PI, true);
       context.fillStyle = "#FF6A6A";
@@ -53,37 +71,8 @@
 
     canvas.addEventListener("mousedown", () => { draw = true }, false)
     canvas.addEventListener("mousemove", setMousePosition, false)
-    canvas.addEventListener("mouseup", () => { draw = false }, false)
+    canvas.addEventListener("mouseup", onMouseUp, false)
 
-    const Direction = {
-      Straight: "Straight",
-      Backwards: "Backwards",
-      Left: "Left",
-      Right: "Right",
-    }
-
-    function GetDirection(a, b, c) {
-      let theta1 = GetAngle(a, b);
-      let theta2 = GetAngle(b, c);
-      let delta = NormalizeAngle(theta2 - theta1);
-
-      if (delta == 0)
-        return Direction.Straight;
-      else if (delta == Math.PI)
-        return Direction.Backwards;
-      else if (delta < Math.PI)
-        return Direction.Left;
-      else return Direction.Right;
-    }
-
-    function GetAngle(p1, p2) {
-      let angleFromXAxis = Math.atan((p2.Y - p1.Y) / (p2.X - p1.X)); // where y = m * x + K
-      return p2.X - p1.X < 0 ? angleFromXAxis + Math.PI : angleFromXAxis; // The will go to the correct Quadrant
-    }
-
-    function NormalizeAngle(angle) {
-      return angle < 0 ? angle + 2 * Math.PI : angle; //This will make sure angle is [0..2PI]
-    }
   </script>
 </body>
 

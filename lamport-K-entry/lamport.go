@@ -16,6 +16,7 @@ type message struct {
 	ReceiverAddr string `json:"receiverAddr"`
 	Message      string `json:"message"`
 	Time         uint   `json:"time"`
+	CSID         string `json:"csid"`
 }
 
 type Clock struct {
@@ -43,12 +44,13 @@ type Node struct {
 	clock      *Clock
 	queue      *list.List
 	waitCh     chan struct{}
-	replies    int
+	replies    map[string]int
 	defered    *list.List
 	inCS       bool
 	neighbours map[int]string
 	log        *logger.Logger
 	lock       *sync.Mutex
+	CSID       string // just unique identifier for critical section
 	listenAddr string
 }
 
@@ -59,6 +61,7 @@ func NewNode(id int, listenAddr string, neighbourIDs map[int]string) *Node {
 		neighbours: neighbourIDs,
 		log:        &logger.Logger{Prefix: fmt.Sprintf("[%d]", id)},
 		lock:       &sync.Mutex{},
+		replies:    map[string]int{},
 		listenAddr: listenAddr,
 	}
 }
@@ -78,21 +81,22 @@ func (l *Node) ProcessMessage(b []byte) {
 	case "request":
 		l.log.Println("request came from ", m.SenderID)
 		l.queue.PushBack(m)
-		reply := message{SenderID: l.id, Message: "reply", Time: l.clock.Time(), ReceiverAddr: senderAddr}
-		if !l.InCS() {
-			l.log.Println("I am not in CS. replying to ", reply.ReceiverAddr)
+		reply := message{SenderID: l.id, Message: "reply", Time: l.clock.Time(), ReceiverAddr: senderAddr, CSID: m.CSID}
+		if l.InCS() && l.CSID != m.CSID {
+			l.log.Println("Deferring reply to ", reply.ReceiverAddr)
+			l.defered.PushBack(reply)
+		} else {
+			l.log.Println("Replying to ", reply.ReceiverAddr)
 			b, _ := json.Marshal(reply)
 			if err := udpclient.SendMessage(reply.ReceiverAddr, b); err != nil {
 				l.log.Println("❗️ ", err)
 			}
 			l.log.Println("->>", string(b))
-		} else {
-			l.log.Println("I am in CS. deferring reply to ", reply.ReceiverAddr)
-			l.defered.PushBack(reply)
 		}
+
 	case "reply":
-		l.log.Println("got permission to enter from ", m.SenderID)
-		l.replies++
+		l.log.Printf("got permission to enter from %d for CSID %s", m.SenderID, m.CSID)
+		l.replies[m.CSID]++
 		l.waitCh <- struct{}{}
 	case "release":
 
@@ -125,11 +129,11 @@ func (l *Node) ReplyToDefered() {
 		m := e.Value.(message)
 		l.log.Println("replying to defered requests. receiver : ", m.ReceiverAddr)
 		b, _ := json.Marshal(m)
+		l.log.Println("->> ", string(b))
 		go func(recieverAddr string) {
 			if err := udpclient.SendMessage(recieverAddr, b); err != nil {
 				l.log.Println("❗️ ", err)
 			}
-			l.log.Println("->>", string(b))
 		}(m.ReceiverAddr)
 	}
 	l.lock.Unlock()
@@ -146,6 +150,7 @@ func (l *Node) ExitCS() {
 	for _, addr := range l.neighbours {
 		m := message{SenderID: l.id, ReceiverAddr: addr, Message: "release", Time: l.clock.Time()}
 		b, _ := json.Marshal(m)
+		l.log.Println("->> ", string(b))
 		go func(receiverAddr string) {
 			if err := udpclient.SendMessage(receiverAddr, b); err != nil {
 				l.log.Println("❗️ ", err)
@@ -166,12 +171,14 @@ func (l *Node) ExitCS() {
 	l.lock.Unlock()
 }
 
-func (l *Node) AskToEnterCS(_ string /* just to satisfy interface */) {
+func (l *Node) AskToEnterCS(CSID string) {
 	l.clock.Tick()
-	m := message{SenderID: l.id, Message: "request", Time: l.clock.Time()}
+	l.CSID = CSID
+	m := message{SenderID: l.id, Message: "request", Time: l.clock.Time(), CSID: CSID}
 	l.queue.PushBack(m)
+
 	for _, addr := range l.neighbours {
-		m := message{SenderID: l.id, Message: "request", Time: l.clock.Time(), ReceiverAddr: addr}
+		m := message{SenderID: l.id, Message: "request", Time: l.clock.Time(), ReceiverAddr: addr, CSID: CSID}
 		b, _ := json.Marshal(m)
 		l.log.Println("->> ", string(b))
 		go func(receiverAddr string) {
@@ -185,20 +192,24 @@ func (l *Node) AskToEnterCS(_ string /* just to satisfy interface */) {
 }
 
 func (l *Node) WaitForCS() {
+
 	for {
 		<-l.waitCh
 
-		gotPermission := l.replies == len(l.neighbours)
-		if gotPermission {
-			m := l.queue.Front().Value.(message)
-			if m.SenderID == l.id {
+		if l.defered.Len() == 0 && l.replies[l.CSID] == len(l.neighbours) {
+			l.replies[l.CSID] = 0
+			break
+		}
+
+		for e := l.defered.Front(); e != nil; e = e.Next() {
+			m := e.Value.(message)
+			gotPermission := l.replies[m.CSID] == len(l.neighbours) && m.SenderID == l.ID()
+			if gotPermission {
+				l.replies[m.CSID] = 0
 				break
-			} else {
-				l.log.Println("I got permission. but priority goes to ", m.SenderID)
 			}
 		}
 	}
-	l.replies = 0
 }
 
 func (l *Node) Start() {
@@ -220,7 +231,7 @@ func (l *Node) Start() {
 			l.log.Println("failed to read from udp: ", err)
 		}
 		b := buffer[0 : n-1]
-		l.log.Println("<<-", string(b))
+		l.log.Println("<<- ", string(b))
 		go l.ProcessMessage(b)
 	}
 }
