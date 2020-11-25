@@ -161,34 +161,21 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// some conditions e.g. all the rendering sources and targets are same.
 	// For more detail, see:
 	// https://pkg.go.dev/github.com/hajimehoshi/ebiten/v2#Image.DrawImage
-	// w, h := ebitenImage.Size()
+
 	bgops := ebiten.DrawImageOptions{}
 	screen.DrawImage(bg, &bgops)
 
 	for i, s := range g.sprites.sprites {
 		w, h := cars[i].Size()
-		// log.Println(w, h)
 
 		g.op.GeoM.Reset()
 
 		g.op.GeoM.Translate(-float64(w)*spriteScale/2, -float64(h)*spriteScale/2)
-		// g.op.GeoM.Rotate(s.angle)
-		// g.op.GeoM.Translate(float64(w)*spriteScale/2, float64(h)*spriteScale/2)
+
 		g.op.GeoM.Translate(float64(s.x), float64(s.y))
 
 		screen.DrawImage(cars[i], &g.op)
 	}
-	// _, h := ebitenImage.Size()
-	// d := 1.0
-	// g.op.GeoM.Reset()
-	// g.op.GeoM.Translate(d, float64(h))
-	// screen.DrawImage(ebitenImage, &g.op)
-	// for {
-	// 	d += 1.0
-	// 	g.op.GeoM.Translate(d, float64(h))
-	// 	time.Sleep(time.Millisecond * 500)
-	// }
-
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
@@ -238,7 +225,8 @@ func main() {
 	}(conn)
 
 	ebiten.SetMaxTPS(25)
-	ebiten.SetWindowSize(screenWidth*2, screenHeight*2)
+	windowScale := 1
+	ebiten.SetWindowSize(screenWidth*windowScale, screenHeight*windowScale)
 	ebiten.SetWindowTitle("Sprites (Ebiten Demo)")
 	if err := ebiten.RunGame(&g); err != nil {
 		log.Fatal(err)

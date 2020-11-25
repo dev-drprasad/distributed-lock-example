@@ -73,26 +73,57 @@ func (l *Node) ID() int {
 func (l *Node) ProcessMessage(b []byte) {
 	var m message
 	if err := json.Unmarshal(b, &m); err != nil {
-		l.log.Println("error unmarshalling message", err)
+		l.log.Println("❗️", err)
 	}
 	l.clock.TakeMax(m.Time)
 	senderAddr := l.neighbours[m.SenderID]
 	switch m.Message {
 	case "request":
-		l.log.Println("request came from ", m.SenderID)
 		l.queue.PushBack(m)
 		reply := message{SenderID: l.id, Message: "reply", Time: l.clock.Time(), ReceiverAddr: senderAddr, CSID: m.CSID}
-		if l.InCS() && l.CSID != m.CSID {
-			l.log.Println("Deferring reply to ", reply.ReceiverAddr)
-			l.defered.PushBack(reply)
-		} else {
+
+		if l.CSID == "" || l.CSID == m.CSID {
+			// reply
 			l.log.Println("Replying to ", reply.ReceiverAddr)
 			b, _ := json.Marshal(reply)
 			if err := udpclient.SendMessage(reply.ReceiverAddr, b); err != nil {
-				l.log.Println("❗️ ", err)
+				l.log.Println("❗️", err)
 			}
 			l.log.Println("->>", string(b))
+		} else { // l.CSID != m.CSID
+			if l.InCS() {
+				// defer
+				l.log.Println("Deferring reply to ", reply.ReceiverAddr)
+				l.defered.PushBack(reply)
+			} else if l.clock.time < m.Time {
+				// use clock time to decide whether to defer reply or not
+				// request happened earlier than my time.
+				// reply
+				l.log.Println("Replying to ", reply.ReceiverAddr)
+				b, _ := json.Marshal(reply)
+				if err := udpclient.SendMessage(reply.ReceiverAddr, b); err != nil {
+					l.log.Println("❗️", err)
+				}
+				l.log.Println("->>", string(b))
+			} else { // !l.InCS() && l.clock.time > m.Time
+				//defer
+				l.log.Println("Deferring reply to ", reply.ReceiverAddr)
+				l.defered.PushBack(reply)
+			}
 		}
+
+		// use clock time to decide whether to defer reply or not
+		// if l.InCS() && l.CSID != "" && l.CSID != m.CSID && l.clock.time < m.Time {
+		// 	l.log.Println("Deferring reply to ", reply.ReceiverAddr)
+		// 	l.defered.PushBack(reply)
+		// } else {
+		// 	l.log.Println("Replying to ", reply.ReceiverAddr)
+		// 	b, _ := json.Marshal(reply)
+		// 	if err := udpclient.SendMessage(reply.ReceiverAddr, b); err != nil {
+		// 		l.log.Println("❗️", err)
+		// 	}
+		// 	l.log.Println("->>", string(b))
+		// }
 
 	case "reply":
 		l.log.Printf("got permission to enter from %d for CSID %s", m.SenderID, m.CSID)
@@ -145,6 +176,7 @@ func (l *Node) ExitCS() {
 	l.log.Println("exiting  CS")
 	l.clock.Tick()
 	l.inCS = false
+	l.CSID = ""
 	l.ReplyToDefered()
 
 	for _, addr := range l.neighbours {
@@ -180,7 +212,6 @@ func (l *Node) AskToEnterCS(CSID string) {
 	for _, addr := range l.neighbours {
 		m := message{SenderID: l.id, Message: "request", Time: l.clock.Time(), ReceiverAddr: addr, CSID: CSID}
 		b, _ := json.Marshal(m)
-		l.log.Println("->> ", string(b))
 		go func(receiverAddr string) {
 			if err := udpclient.SendMessage(receiverAddr, b); err != nil {
 				l.log.Println("❗️ ", err)
@@ -201,14 +232,23 @@ func (l *Node) WaitForCS() {
 			break
 		}
 
-		for e := l.defered.Front(); e != nil; e = e.Next() {
-			m := e.Value.(message)
-			gotPermission := l.replies[m.CSID] == len(l.neighbours) && m.SenderID == l.ID()
-			if gotPermission {
-				l.replies[m.CSID] = 0
+		if l.defered.Len() > 0 {
+			m := l.defered.Front().Value.(message)
+			if m.SenderID == l.ID() && l.replies[l.CSID] == len(l.neighbours) {
+				l.replies[l.CSID] = 0
 				break
 			}
 		}
+
+		// for e := l.defered.Front(); e != nil; e = e.Next() {
+		// 	m := e.Value.(message)
+
+		// 	gotPermission := l.replies[m.CSID] == len(l.neighbours) && m.SenderID == l.ID() && l.CSID == m.CSID
+		// 	if gotPermission {
+		// 		l.replies[m.CSID] = 0
+		// 		break
+		// 	}
+		// }
 	}
 }
 

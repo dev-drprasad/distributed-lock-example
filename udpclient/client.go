@@ -1,7 +1,6 @@
 package client
 
 import (
-	"log"
 	"net"
 )
 
@@ -56,7 +55,6 @@ func SendMessage(addr string, data []byte) error {
 	}
 	defer conn.Close()
 
-	log.Println("addr: ", addr)
 	_, err = conn.Write(append(data, []byte("\n")...))
 	if err != nil {
 		return err

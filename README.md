@@ -20,12 +20,24 @@ package `lamport-K-entry` contains "Lamport K entry" implementation. This modifi
 
 package `raymond-K-entry` contains "Raymond K entry" implementation. This modified version of raymonds to allow mulitiple entries to critical section. Unfortunately, I couldn't able to finish this.
 
+This algorithm designed such a way to prevent starvation. Ex: if car waiting for entering bridge, it won't acknowledge (defers reply) car coming from other direction. That's why sometimes, you only see one car passing the bridge in same direction. If no, car is waiting for entering bridge, then multiple cars can cross bridge in same direction
+
 ref: https://www.computer.org/csdl/pds/api/csdl/proceedings/download-article/12OmNBqdrdh/pdf
 
 ### Narrow Bridge Simulation
 
+In all cases, cars starts at random position and moves with random speed.
+
 Below commands can be run in single machine as seperate process. Or can be run in multiple machines.
 All commands I mentioned are to run in single machine. To run in multiple machines, change `--neighbour` value with respective IP and port values. `--neighbour` format is `<node-id>:<host>:<port>`
+
+#### Run GUI first
+
+Run
+
+```
+go run gui/main.go --listen :7500
+```
 
 #### One car at a time
 
@@ -34,19 +46,19 @@ This can be simulated using `raymond` and `lamport` implementations I did.
 ##### Using Raymond
 
 ```
-go run *.go --id 0 --listen :7000 --neighbour 1:127.0.0.1:7001 --neighbour 2:127.0.0.1:7002 --neighbour 3:127.0.0.1:7003 --holder 0 --algorithm raymond
-go run *.go --id 1 --listen :7001 --neighbour 0:127.0.0.1:7000 --holder 0 --algorithm raymond
-go run *.go --id 2 --listen :7002 --neighbour 0:127.0.0.1:7000 --holder 0 --algorithm raymond
-go run *.go --id 3 --listen :7003 --neighbour 0:127.0.0.1:7000 --holder 0 --algorithm raymond
+go run *.go --id 0 --listen :7000 --gui :7500 --neighbour 1:127.0.0.1:7001 --neighbour 2:127.0.0.1:7002 --neighbour 3:127.0.0.1:7003 --holder 0 --algorithm raymond
+go run *.go --id 1 --listen :7001 --gui :7500 --neighbour 0:127.0.0.1:7000 --holder 0 --algorithm raymond
+go run *.go --id 2 --listen :7002 --gui :7500 --neighbour 0:127.0.0.1:7000 --holder 0 --algorithm raymond
+go run *.go --id 3 --listen :7003 --gui :7500 --neighbour 0:127.0.0.1:7000 --holder 0 --algorithm raymond
 ```
 
 ##### Using Lamport
 
 ```
-go run *.go --id 0 --listen :7000 --neighbour 1:127.0.0.1:7001 --neighbour 2:127.0.0.1:7002 --neighbour 3:127.0.0.1:7003 --algorithm lamport
-go run *.go --id 1 --listen :7001 --neighbour 0:127.0.0.1:7000 --neighbour 2:127.0.0.1:7002 --neighbour 3:127.0.0.1:7003 --algorithm lamport
-go run *.go --id 2 --listen :7002 --neighbour 0:127.0.0.1:7000 --neighbour 1:127.0.0.1:7001 --neighbour 3:127.0.0.1:7003 --algorithm lamport
-go run *.go --id 3 --listen :7003 --neighbour 0:127.0.0.1:7000 --neighbour 1:127.0.0.1:7001 --neighbour 2:127.0.0.1:7002 --algorithm lamport
+go run *.go --id 0 --listen :7000 --gui :7500 --neighbour 1:127.0.0.1:7001 --neighbour 2:127.0.0.1:7002 --neighbour 3:127.0.0.1:7003 --algorithm lamport
+go run *.go --id 1 --listen :7001 --gui :7500 --neighbour 0:127.0.0.1:7000 --neighbour 2:127.0.0.1:7002 --neighbour 3:127.0.0.1:7003 --algorithm lamport
+go run *.go --id 2 --listen :7002 --gui :7500 --neighbour 0:127.0.0.1:7000 --neighbour 1:127.0.0.1:7001 --neighbour 3:127.0.0.1:7003 --algorithm lamport
+go run *.go --id 3 --listen :7003 --gui :7500 --neighbour 0:127.0.0.1:7000 --neighbour 1:127.0.0.1:7001 --neighbour 2:127.0.0.1:7002 --algorithm lamport
 ```
 
 #### Multiple cars in same direction
@@ -54,10 +66,10 @@ go run *.go --id 3 --listen :7003 --neighbour 0:127.0.0.1:7000 --neighbour 1:127
 ##### Using Lamport K entry
 
 ```
-go run *.go --id 0 --listen :7000 --neighbour 1:127.0.0.1:7001 --neighbour 2:127.0.0.1:7002 --neighbour 3:127.0.0.1:7003 --algorithm lamport-K-entry
-go run *.go --id 1 --listen :7001 --neighbour 0:127.0.0.1:7000 --neighbour 2:127.0.0.1:7002 --neighbour 3:127.0.0.1:7003 --algorithm lamport-K-entry
-go run *.go --id 2 --listen :7002 --neighbour 0:127.0.0.1:7000 --neighbour 1:127.0.0.1:7001 --neighbour 3:127.0.0.1:7003 --algorithm lamport-K-entry
-go run *.go --id 3 --listen :7003 --neighbour 0:127.0.0.1:7000 --neighbour 1:127.0.0.1:7001 --neighbour 2:127.0.0.1:7002 --algorithm lamport-K-entry
+go run *.go --id 0 --listen :7000 --gui :7500 --neighbour 1:127.0.0.1:7001 --neighbour 2:127.0.0.1:7002 --neighbour 3:127.0.0.1:7003 --algorithm lamport-K-entry
+go run *.go --id 1 --listen :7001 --gui :7500 --neighbour 0:127.0.0.1:7000 --neighbour 2:127.0.0.1:7002 --neighbour 3:127.0.0.1:7003 --algorithm lamport-K-entry
+go run *.go --id 2 --listen :7002 --gui :7500 --neighbour 0:127.0.0.1:7000 --neighbour 1:127.0.0.1:7001 --neighbour 3:127.0.0.1:7003 --algorithm lamport-K-entry
+go run *.go --id 3 --listen :7003 --gui :7500 --neighbour 0:127.0.0.1:7000 --neighbour 1:127.0.0.1:7001 --neighbour 2:127.0.0.1:7002 --algorithm lamport-K-entry
 ```
 
 ##### Using Raymond K entry

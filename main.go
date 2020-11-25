@@ -46,7 +46,7 @@ type guiMessage struct {
 
 var d = 10
 
-var iterations = 5
+var iterations = 4
 
 type Direction string
 
@@ -113,13 +113,20 @@ func (c *car) startMovement(startPos int) {
 			c.leaveBridge()
 		}
 
-		if i%5 == 0 {
-			m := guiMessage{SenderID: c.algo.ID(), Position: pos}
-			b, _ := json.Marshal(&m)
-			if err := c.gui.Send(b); err != nil {
-				log.Println(err)
+		// this is kind debouncing.
+		// we are not sending each and every positions to GUI. It will blow up GUI
+		// low value means slow motion, high value means faster motion
+		sampleRate := 20
+		if i%sampleRate == 0 {
+			if c.gui != nil {
+				m := guiMessage{SenderID: c.algo.ID(), Position: pos}
+				b, _ := json.Marshal(&m)
+				if err := c.gui.Send(b); err != nil {
+					// log.Println(err)
+				}
 			}
-			time.Sleep(200 * time.Millisecond)
+			// min: 100ms. different cars move with different speeds
+			time.Sleep(time.Duration(rand.Intn(100*(c.algo.ID()+1))+100) * time.Millisecond)
 		}
 	}
 }
@@ -163,22 +170,28 @@ func main() {
 	var id int
 	var algorithm string
 	var listenAddr string
+	var guiAddr string
 
 	var neighbours neighboursFlag
 	var holder int
 	var tokens int
 	flag.IntVar(&id, "id", -1, "id of car")
-	flag.IntVar(&holder, "holder", -1, "id of car")
-	flag.IntVar(&tokens, "tokens", 0, "id of car")
+	flag.IntVar(&holder, "holder", -1, "initial holder of token") // applicable to raymond and raymond-K-entry
+	flag.IntVar(&tokens, "tokens", 0, "num of tokens")            // applicable only to ramond-K-entry
 	flag.StringVar(&algorithm, "algorithm", "lamport", "raymond or lamport")
-	flag.StringVar(&listenAddr, "listen", "", "raymond or lamport")
+	flag.StringVar(&listenAddr, "listen", "", "own listening address")
+	flag.StringVar(&guiAddr, "gui", "", "address of GUI")
 	flag.Var(&neighbours, "neighbour", "neighbour ids")
 	flag.Parse()
 	rand.Seed(time.Now().UnixNano() + int64(id))
 
-	gui, err := udpclient.NewClient(":7500")
-	if err != nil {
-		os.Exit(0)
+	var gui *udpclient.Client
+	var err error
+	if guiAddr != "" {
+		gui, err = udpclient.NewClient(guiAddr)
+		if err != nil {
+			os.Exit(0)
+		}
 	}
 
 	carDirection := DirectionWest
@@ -198,12 +211,15 @@ func main() {
 		algo = lamport.NewNode(id, listenAddr, neighbours)
 	}
 
-	c := car{gui: gui, direction: carDirection, algo: algo}
+	c := car{gui: gui,
+		direction: carDirection,
+		algo:      algo,
+	}
 
 	go c.start()
 
 	doneCh := make(chan struct{})
-	time.Sleep(time.Duration((rand.Intn(6) + 6)) * time.Second)
+	time.Sleep(time.Duration((rand.Intn(6) + 6)) * time.Second) // wait for others to join
 
 	for i := 0; i < iterations; i++ {
 		if i == 0 {
@@ -214,5 +230,5 @@ func main() {
 		}
 	}
 	log.Println("✅ DONE")
-	<-doneCh
+	<-doneCh // donot exit program. because it still needs to respond other unfinished peers
 }
